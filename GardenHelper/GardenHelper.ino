@@ -3,8 +3,6 @@
 #include "DS3231.h"
 #include <Wire.h>
 
-
-
 int soilval = 0; //value for storing moisture value
 int lightval = 0; //value for storing light level
 int tempval = 0; //value for storing temp level
@@ -23,16 +21,11 @@ int blue = 0;
 int yellow = 0;
 
 //values
-int readingNum = 0; //Counter
-int* lightHistory = 0;
-int* tempHistory = 0;
-int arrayIndex = 0;
-int arraySize = 0;
-int tempAVG = 0;
-int lightAVG = 0;
+float tempAVG = -1;
+float lightAVG = -1;
 
 //default values for health check
-//All values are defined as a % from 0 to 100
+//All values are defined as a % from 0 to 99
 int waterlow = 30;
 int templow = 30;
 int temphigh = 80;
@@ -40,10 +33,10 @@ int lightAVGlow = 20;
 int lightAVGhigh = 80;
 //default reading Freq in readings per hour
 int readingFreq = 1;
+int desiredSize = 24 * readingFreq;
 
 File logfile, configfile;
-const byte numChars = 32;
-char receivedChars[numChars];
+char receivedChars[32];
 RTClib RTC;
 DateTime now;
 
@@ -51,19 +44,23 @@ void setup()
 {
   Serial.begin(9600);   // open serial over USB
   Wire.begin();
-  while (!Serial) ;
   pinMode(13, OUTPUT);
   // define LED pins as outputs
   pinMode( blueLED, OUTPUT );
   pinMode( yellowLED, OUTPUT );
   pinMode( greenLED, OUTPUT );
-
-  Serial.print("Initializing SD card...");
-  if (!SD.begin(4)) {
-    Serial.println("initialization failed!");
-    while (1);
+  bool sd = false;
+  while (!sd) {
+    Serial.print("Initializing SD card...");
+    if (SD.begin(4)) {
+      sd = true;
+      Serial.println("initialization done.");
+    } else {
+      Serial.println("initialization failed!");
+      delay(1000);
+    }
   }
-  Serial.println("initialization done.");
+  
   //Open up the config file and read in the data
 
   configfile = SD.open("Config.txt", FILE_READ);
@@ -80,25 +77,14 @@ void setup()
     lightAVGhigh = getConfigValue();
     recvWithEndMarker();
     readingFreq = getConfigValue();
+    if (readingFreq > 4) {
+      Serial.println("Maxium reading perhour is 4");
+      readingFreq = 4;
+    }
+    desiredSize = 24 * readingFreq;
     configfile.close();
   } else {
     Serial.println("error opening configfile.txt");
-  }
-  logfile = SD.open("Logfile.txt", FILE_WRITE);
-  if (logfile) {
-    logfile.println("Time,Moisture,Light,Temp");
-    logfile.close();
-  } else {
-    // if the file didn't open, print an error:
-    Serial.println("error opening Logfile.txt");
-  }
-  readingFreq = 60;
- lightHistory = new int [readingFreq];
-  tempHistory = new int [readingFreq];
-  arraySize = readingFreq;
-  for(int i = 0; i < arraySize; i++){
-    lightHistory[i] = -1;
-    tempHistory[i] = -1;
   }
 }
 
@@ -118,11 +104,7 @@ void loop()
   Serial.print(":");
   Serial.print(now.minute());
   Serial.print(":");
-  Serial.print(now.second());
-  Serial.print(",");
-  Serial.print("Reading #");
-  Serial.println(readingNum);
-  readingNum++;
+  Serial.println(now.second());
   Serial.print("Soil Moisture = ");
   //get soil moisture value from the function below and print it
   Serial.println(readSoil());
@@ -133,6 +115,7 @@ void loop()
   //get light value from the function below and print it
   Serial.println(readTemp());
   Log(); //Call the function to log
+ findAverages();
   Health(); // Call the function to check plant health
   if (blue == 1) {
     digitalWrite(blueLED, HIGH);
@@ -149,7 +132,7 @@ void loop()
   } else {
     digitalWrite(greenLED, LOW);
   }
-  delay((60/readingFreq) * 60000);
+  delay((60 / readingFreq) * 60000);
 
   //This 1 second timefrme is used so you can test the sensor and see it change in real-time.
   //For in-plant applications, you will want to take readings much less frequently.
@@ -158,12 +141,10 @@ void loop()
 int readSoil()
 {
   soilval = analogRead(soilPin);//Read the SIG value form sensor
-  Serial.print("Water Raw:");
-  Serial.println(soilval);
-  if(soilval>1020){
+  if (soilval > 1020) {
     soilval = 0;
-  } else if (soilval < 400){
-    soilval = 100;
+  } else if (soilval < 400) {
+    soilval = 99;
   } else {
     soilval = 164 - (0.16 * soilval);
   }
@@ -173,39 +154,30 @@ int readSoil()
 int readLight()
 {
   lightval = analogRead(lightPin);//Read the SIG value form sensor
-  if(lightval<150){
-    lightval= 100;
-  } else if (lightval > 900){
+  if (lightval < 150) {
+    lightval = 99;
+  } else if (lightval > 900) {
     lightval = 0;
-  } else{
-    lightval = 120-(0.133333*lightval);
+  } else {
+    lightval = 120 - (0.133333 * lightval);
   }
-   return lightval;
+  return lightval;
 }
 //Get Temp
 int readTemp()
 {
   tempval = analogRead(tempPin);//Read the SIG value form sensor
-  if(tempval > 497){
+  if (tempval > 497) {
     tempval = 0;
-  } else if (tempval < 15){
-    tempval = 100;
+  } else if (tempval < 15) {
+    tempval = 99;
   } else {
-    tempval= 86.67 - (0.11*tempval);
+    tempval = 86.67 - (0.11 * tempval);
   }
-   return tempval;
+  return tempval;
 }
 //Check values and changes LEDs
 void Health() {
-  //Read the latest values into the array
-  if(arrayIndex = arraySize){
-    arrayIndex = 0;
-  }
-  tempHistory[arrayIndex] = readTemp();
-  lightHistory[arrayIndex] = readLight();
-  arrayIndex++;
-  averageArrays();
-  
   if (soilval > waterlow) {
     blue = 0;
   } else {
@@ -216,42 +188,14 @@ void Health() {
     blue = 1;
   }
   if (tempAVG > temphigh || tempAVG < templow || lightAVG < lightAVGlow || lightAVG > lightAVGhigh) {
-    yellow = 1;
+    if (tempAVG >= 0 && lightAVG >= 0) {
+      yellow = 1;
+      Serial.println("Setting yellow LED, values:");
+    Serial.println(tempAVG);
+    Serial.println(lightAVG);
+    }
   } else {
     yellow = 0;
-  }
-}
-
- //Find average of arrays
-
-void averageArrays(){
-  int elements = 0;
-  int sum = 0;
-  for(int i = 0; i < arraySize; i++){
-    if(tempHistory[i] != -1){
-      elements++;
-      sum += tempHistory[i];
-    }
-  }
-  tempAVG = sum/elements;
-  Serial.print("Avg temp");
-  Serial.println(tempAVG);
-  if(elements < (readingFreq*8)){
-    tempAVG = 50;
-  }
-    elements = 0;
-   sum = 0;
-  for(int i = 0; i < arraySize; i++){
-    if(lightHistory[i] != -1){
-      elements++;
-      sum += lightHistory[i];
-    }
-  }
-  lightAVG = sum/elements;
-  Serial.print("Avg light");
-  Serial.println(lightAVG);
-  if(elements < (readingFreq*8)){
-    lightAVG = 50;
   }
 }
 
@@ -299,7 +243,7 @@ int getConfigValue() {
   return ( 10 * (receivedChars[index] - '0' ) ) + receivedChars[index + 1] - '0';
 }
 int findIndexOfStart() {
-  for (int i = 0; i < numChars; i++) {
+  for (int i = 0; i < 32; i++) {
     if (receivedChars[i] == '=') {
       return i;
     }
@@ -318,8 +262,8 @@ void recvWithEndMarker() {
     if (rc != endMarker) {
       receivedChars[ndx] = rc;
       ndx++;
-      if (ndx >= numChars) {
-        ndx = numChars - 1;
+      if (ndx >= 32) {
+        ndx = 32 - 1;
       }
     }
     else {
@@ -329,5 +273,112 @@ void recvWithEndMarker() {
     }
   }
 }
+void findAverages() {
+  int numOfLines = findNumOfLines();
+  if (numOfLines < desiredSize) {
+    return;
+  }
+  if (numOfLines > 20000) {
+    Serial.println("Setting Yellow LED because log is getting to big");
+    digitalWrite(yellowLED, HIGH);
+    while (1);
+  }
+  int startLine = numOfLines - desiredSize;
+  readValues(startLine);
+  tempAVG = tempAVG / desiredSize;
+  lightAVG = lightAVG / desiredSize;
+  return;
+}
 
+int findIndexOfLight() {
+  int commaCount = 0;
+  for (int i = 0; i < 32; i++) {
+    if (receivedChars[i] == ',') {
+      commaCount++;
+      if (commaCount == 2) {
+        return i;
+      }
+    }
+  }
+}
+int findNumOfLines() {
+  logfile = SD.open("Logfile.txt", FILE_READ);
+  if (logfile) {
+    int lineCount = 0;
+    while (logfile.available()) {
+      readLine();
+      lineCount++;
+    }
+    logfile.close();
+    return lineCount;
+  }
+  return -1;
+}
+
+void readValues(int startLine) {
+  int currentLine = 0;
+  static byte ndx = 0;
+  char endMarker = '\n';
+  char rc;
+  bool endOfline = false;
+  logfile = SD.open("Logfile.txt", FILE_READ);
+  if (logfile) {
+    while (logfile.available() && currentLine < startLine) {
+      while (!endOfline) {
+        rc = logfile.read();
+        if (rc == endMarker) {
+          endOfline = true;
+        }
+      }
+      currentLine++;
+      endOfline = false;
+    }
+    while (logfile.available()) {
+      while (!endOfline) {
+        rc = logfile.read();
+        if (rc != endMarker) {
+          receivedChars[ndx] = rc;
+          ndx++;
+          if (ndx >= 32) {
+            ndx = 32 - 1;
+          }
+        }
+        else {
+          receivedChars[ndx] = '\0'; // terminate the string
+          ndx = 0;
+          endOfline = true;
+        }
+      }
+      endOfline = false;
+      ndx = 0;
+      //extract values
+      extractValues();
+    }
+    logfile.close();
+  }
+  else {
+    Serial.println("Couldn't open logfile for getlineN func");
+  }
+}
+
+void extractValues() {
+  int index = findIndexOfLight() + 1;
+  float num = (10 * (receivedChars[index] - '0')) + receivedChars[index + 1] - '0';
+  float num2 = (10 * (receivedChars[index + 3] - '0')) + receivedChars[index + 4] - '0';
+  tempAVG += num2;
+  lightAVG += num;
+}
+
+
+void readLine() {
+  char endMarker = '\n';
+  char rc;
+
+  while (logfile.available()) {
+    rc = logfile.read();
+    if (rc == endMarker) {
+      return;
+    }
+  }
+}
 //end sketch
