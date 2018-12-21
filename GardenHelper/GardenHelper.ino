@@ -115,7 +115,7 @@ void loop()
   //get light value from the function below and print it
   Serial.println(readTemp());
   Log(); //Call the function to log
- findAverages();
+ //findAverages();
   Health(); // Call the function to check plant health
   if (blue == 1) {
     digitalWrite(blueLED, HIGH);
