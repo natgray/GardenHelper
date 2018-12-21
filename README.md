@@ -13,9 +13,9 @@
 Gardenhelper will monitor Light, tempature and soil mositure values, if any of these are out of a user definied range LEDs will inform the user their plant needs some love. 
 
 ## What do the different LEDs mean?
--A Blue LED means your plant needs more water.
--A Yellow LED means that the average tempature or average light level your plant is exposed to is too high or too low.
--A Green LED means your plant is healthy and happy.
+- A Blue LED means your plant needs more water.
+- A Yellow LED means that the average tempature or average light level your plant is exposed to is too high or too low.
+- A Green LED means your plant is healthy and happy.
 
 ![alt text](https://github.com/natgray/GardenHelper/blob/master/GardenHelper/CircuitOverview.png "Circuit Overview")
 
